@@ -4,15 +4,21 @@ Minimal reproduction for [nuxt-hub/core#692](https://github.com/nuxt-hub/core/is
 
 ## Problem
 
-D1 binding accessed at module load time. On Cloudflare Workers, bindings are only available in request context, causing `DB binding not found` error.
+D1 binding accessed at module load time. On Cloudflare Workers, bindings are only available in request context, causing `DB binding not found` error when deployed to Cloudflare (works locally with `wrangler dev` because local mode is more lenient).
 
 ## Repro Steps
 
 ```bash
 pnpm install
 NITRO_PRESET=cloudflare-module pnpm build
-pnpm wrangler dev
-# Visit http://localhost:8787 -> Error: DB binding not found
+
+# Check generated code - binding accessed at module load:
+cat node_modules/.cache/nuxt/.nuxt/hub/db.mjs
+# Output shows: const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+# This runs at import time, before request context exists
+
+# Deploy to Cloudflare (will fail in production)
+pnpm wrangler deploy
 ```
 
 ## Structure
