@@ -2,27 +2,17 @@
 
 This branch demonstrates the fix for [nuxt-hub/core#692](https://github.com/nuxt-hub/core/issues/692).
 
-## What's different
-
-Uses `@nuxthub/core` from PR #694 which includes lazy D1 binding access.
-
-## Verify the fix
+## Quick Verify (copy-paste)
 
 ```bash
+git clone -b with-fix https://github.com/onmax/nuxthub-d1-repro.git nuxthub-d1-repro-fix
+cd nuxthub-d1-repro-fix
 pnpm install
 NITRO_PRESET=cloudflare-module pnpm build
-
-# Check generated code - binding is now lazy:
 cat node_modules/.cache/nuxt/.nuxt/hub/db.mjs
 ```
 
-**Before (bug):**
-```js
-const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
-const db = drizzle(binding, { schema })
-```
-
-**After (fix):**
+You'll see the fix - lazy binding via Proxy:
 ```js
 let _db
 function getDb() {
@@ -36,9 +26,21 @@ function getDb() {
 const db = new Proxy({}, { get(_, prop) { return getDb()[prop] } })
 ```
 
-The binding is now only accessed when actually querying the database, not at module load time.
+## What's different
+
+Uses `@nuxthub/core` from PR #694 which includes lazy D1 binding access.
+
+**Before (bug on `main` branch):**
+```js
+const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+const db = drizzle(binding, { schema })  // <- runs immediately at import
+```
+
+**After (fix on this branch):**
+Binding only accessed when actually querying the database, not at module load time.
 
 ## Links
 
 - Issue: https://github.com/nuxt-hub/core/issues/692
 - Fix PR: https://github.com/nuxt-hub/core/pull/694
+- Branch with bug: [`main`](https://github.com/onmax/nuxthub-d1-repro/tree/main)
