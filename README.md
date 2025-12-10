@@ -1,40 +1,44 @@
-# NuxtHub D1 Binding Bug Repro
+# NuxtHub D1 Binding Bug - WITH FIX
 
-Minimal reproduction for [nuxt-hub/core#692](https://github.com/nuxt-hub/core/issues/692).
+This branch demonstrates the fix for [nuxt-hub/core#692](https://github.com/nuxt-hub/core/issues/692).
 
-## Problem
+## What's different
 
-D1 binding accessed at module load time. On Cloudflare Workers, bindings are only available in request context, causing `DB binding not found` error when deployed to Cloudflare (works locally with `wrangler dev` because local mode is more lenient).
+Uses `@nuxthub/core` from PR #694 which includes lazy D1 binding access.
 
-## Repro Steps
+## Verify the fix
 
 ```bash
 pnpm install
 NITRO_PRESET=cloudflare-module pnpm build
 
-# Check generated code - binding accessed at module load:
+# Check generated code - binding is now lazy:
 cat node_modules/.cache/nuxt/.nuxt/hub/db.mjs
-# Output shows: const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
-# This runs at import time, before request context exists
-
-# Deploy to Cloudflare (will fail in production)
-pnpm wrangler deploy
 ```
 
-## Structure
-
-```
-server/
-├── db/schema.ts          # Drizzle schema
-├── utils/db.ts           # Imports hub:db at module level
-├── middleware/auth.ts    # Imports utils/db -> triggers bug
-└── api/users.get.ts      # API route
+**Before (bug):**
+```js
+const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+const db = drizzle(binding, { schema })
 ```
 
-The bug triggers because middleware imports `utils/db.ts`, which imports `hub:db`. The D1 binding lookup happens immediately at import time, before any request context exists.
+**After (fix):**
+```js
+let _db
+function getDb() {
+  if (!_db) {
+    const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+    if (!binding) throw new Error('DB binding not found')
+    _db = drizzle(binding, { schema })
+  }
+  return _db
+}
+const db = new Proxy({}, { get(_, prop) { return getDb()[prop] } })
+```
 
-## Fix
+The binding is now only accessed when actually querying the database, not at module load time.
 
-PR: https://github.com/nuxt-hub/core/pull/694
+## Links
 
-Use Proxy for lazy binding access - binding only resolved when actually querying.
+- Issue: https://github.com/nuxt-hub/core/issues/692
+- Fix PR: https://github.com/nuxt-hub/core/pull/694
