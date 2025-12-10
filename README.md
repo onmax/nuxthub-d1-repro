@@ -4,37 +4,49 @@ Minimal reproduction for [nuxt-hub/core#692](https://github.com/nuxt-hub/core/is
 
 ## Problem
 
-D1 binding accessed at module load time. On Cloudflare Workers, bindings are only available in request context, causing `DB binding not found` error when deployed to Cloudflare (works locally with `wrangler dev` because local mode is more lenient).
+D1 binding accessed at module load time. On Cloudflare Workers, bindings are only available in request context, causing `DB binding not found` error when deployed.
 
-## Repro Steps
+## Quick Repro (copy-paste)
 
 ```bash
+git clone https://github.com/onmax/nuxthub-d1-repro.git
+cd nuxthub-d1-repro
 pnpm install
 NITRO_PRESET=cloudflare-module pnpm build
-
-# Check generated code - binding accessed at module load:
 cat node_modules/.cache/nuxt/.nuxt/hub/db.mjs
-# Output shows: const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
-# This runs at import time, before request context exists
-
-# Deploy to Cloudflare (will fail in production)
-pnpm wrangler deploy
 ```
 
-## Structure
-
-```
-server/
-├── db/schema.ts          # Drizzle schema
-├── utils/db.ts           # Imports hub:db at module level
-├── middleware/auth.ts    # Imports utils/db -> triggers bug
-└── api/users.get.ts      # API route
+You'll see the bug - binding accessed at module load time:
+```js
+const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+const db = drizzle(binding, { schema })  // <- runs immediately at import
 ```
 
-The bug triggers because middleware imports `utils/db.ts`, which imports `hub:db`. The D1 binding lookup happens immediately at import time, before any request context exists.
+## Verify the Fix
 
-## Fix
+```bash
+git checkout with-fix
+pnpm install
+NITRO_PRESET=cloudflare-module pnpm build
+cat node_modules/.cache/nuxt/.nuxt/hub/db.mjs
+```
 
-PR: https://github.com/nuxt-hub/core/pull/694
+With the fix - lazy binding via Proxy:
+```js
+let _db
+function getDb() {
+  if (!_db) {
+    const binding = process.env.DB || globalThis.__env__?.DB || globalThis.DB
+    if (!binding) throw new Error('DB binding not found')
+    _db = drizzle(binding, { schema })
+  }
+  return _db
+}
+const db = new Proxy({}, { get(_, prop) { return getDb()[prop] } })
+```
 
-Use Proxy for lazy binding access - binding only resolved when actually querying.
+## Links
+
+- Issue: https://github.com/nuxt-hub/core/issues/692
+- Fix PR: https://github.com/nuxt-hub/core/pull/694
+- Branch with fix: [`with-fix`](https://github.com/onmax/nuxthub-d1-repro/tree/with-fix)
