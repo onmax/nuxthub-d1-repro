@@ -1,6 +1,7 @@
 # Nuxt dev/build outputs
 .output
 .wrangler
+.wrangler-build
 .data
 .nuxt
 .nitro

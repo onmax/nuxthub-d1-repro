@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "nuxthub-d1-repro" generated at 2025-12-10T12:29:25.565Z.
